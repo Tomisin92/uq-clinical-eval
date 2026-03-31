@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+data/hosp/
+data/icu/
+data/processed/
