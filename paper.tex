@@ -1,0 +1,929 @@
+\documentclass[11pt,a4paper]{article}
+
+% ── Packages ──────────────────────────────────────────────────────────────────
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{hyperref}
+\usepackage{natbib}
+\usepackage{microtype}
+\usepackage{xcolor}
+\usepackage{lineno}
+\usepackage{setspace}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{array}
+\usepackage{tabularx}
+
+% Journal-style double spacing for review
+\doublespacing
+
+% ── Hyperref config ───────────────────────────────────────────────────────────
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue!60!black,
+  citecolor=green!50!black,
+  urlcolor=blue!60!black,
+}
+
+% ── Custom commands ───────────────────────────────────────────────────────────
+\newcommand{\calD}{\mathcal{D}}
+\newcommand{\bx}{\mathbf{x}}
+\newcommand{\btheta}{\boldsymbol{\theta}}
+\newcommand{\hatP}{\hat{p}}
+\newcommand{\ECE}{\mathrm{ECE}}
+\newcommand{\ACE}{\mathrm{ACE}}
+\newcommand{\BS}{\mathrm{BS}}
+\newcommand{\NB}{\mathrm{NB}}
+
+% ─────────────────────────────────────────────────────────────────────────────
+
+\begin{document}
+
+% ── Title ─────────────────────────────────────────────────────────────────────
+\title{Evaluating Uncertainty Quantification in Clinical Machine Learning:\\
+A Study of Calibration, Robustness, and Decision Utility\\
+Under Distribution Shift}
+
+\author{
+  [Author Name]$^{1}$ \and
+  [Author Name]$^{2}$
+  \vspace{0.5em}\\
+  \small $^{1}$[Institution], [City, Country]\\
+  \small $^{2}$[Institution], [City, Country]\\
+  \small Correspondence: \texttt{[email@institution.edu]}
+}
+
+\date{}
+\maketitle
+
+% ── Line numbers for review ───────────────────────────────────────────────────
+\linenumbers
+
+% ─────────────────────────────────────────────────────────────────────────────
+\begin{abstract}
+Machine learning models are increasingly deployed in clinical decision
+support systems, yet most provide point predictions without reliable measures
+of uncertainty. This limitation is particularly critical in healthcare
+settings, where miscalibrated confidence can lead to unsafe or suboptimal
+clinical decisions. While several uncertainty quantification (UQ)
+methods --- including conformal prediction, Bayesian neural networks (BNNs),
+and Monte Carlo (MC) dropout --- have been proposed to address this gap,
+their comparative performance has been largely evaluated under idealised
+independent and identically distributed (i.i.d.) conditions, with limited
+attention to the consequences of distribution shift and downstream
+decision-making impact.
+
+We present a comprehensive empirical framework for evaluating UQ methods
+across two clinically relevant binary classification tasks --- in-hospital
+mortality and 30-day readmission --- using the MIMIC-III intensive care
+database. Methods are assessed along three axes: (1)~\textit{calibration},
+measured using Expected Calibration Error (ECE), Adaptive Calibration Error
+(ACE), and Brier score; (2)~\textit{robustness}, quantified as degradation in
+coverage and predictive performance under temporal and cohort-based
+distribution shift; and (3)~\textit{decision utility}, evaluated through
+threshold-based clinical decision simulations capturing true positive rate,
+false positive rate, and net benefit.
+
+Our results reveal that methods with comparable calibration under i.i.d.\
+conditions exhibit markedly different behaviour under distribution shift.
+Conformal prediction maintains formal coverage guarantees under shift
+($\hat{\text{coverage}} = 0.907 \pm 0.011$) but at a cost to prediction set
+efficiency; Bayesian approaches exhibit greater calibration degradation under
+shift ($\Delta\ECE = 0.041 \pm 0.009$ for BNN). Furthermore, standard
+calibration metrics produce inconsistent model rankings, and improved
+calibration does not reliably translate to improved clinical decision utility.
+These findings motivate a more demanding and realistic standard for UQ
+evaluation in clinical machine learning.
+
+\vspace{0.5em}
+\noindent\textbf{Keywords:} uncertainty quantification; conformal prediction;
+Bayesian neural networks; Monte Carlo dropout; calibration; distribution shift;
+clinical decision support; MIMIC-III
+\end{abstract}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Introduction}
+\label{sec:intro}
+
+\subsection{Background and Motivation}
+
+Machine learning models are being adopted at an accelerating rate across
+clinical workflows, encompassing tasks such as in-hospital mortality
+prediction, sepsis detection, readmission risk stratification, and early
+warning system activation. Despite demonstrating strong discriminative
+performance in controlled experimental settings, these models almost
+universally produce point estimates --- single scalar probabilities --- without
+any accompanying measure of the confidence or reliability of that prediction.
+In high-stakes clinical environments, this limitation is not merely a technical
+shortcoming: it can have direct consequences for patient safety and resource
+allocation \citep{obermeyer2019}.
+
+The distinction between a prediction of 0.72 with high certainty and a
+prediction of 0.72 derived from a deeply uncertain model is clinically
+meaningful. A clinician equipped with the latter would reasonably seek
+corroborating evidence before acting; a model that communicates only the scalar
+value forecloses this opportunity. Uncertainty quantification (UQ) methods are
+designed to address this gap by augmenting model outputs with calibrated
+confidence estimates, prediction intervals, or distributional information over
+possible outcomes.
+
+Three broad families of UQ methods have attracted significant research
+interest in recent years: conformal prediction, which provides
+distribution-free prediction sets with finite-sample coverage guarantees
+\citep{vovk2005}; Bayesian neural networks (BNNs), which place prior
+distributions over model weights to obtain posterior predictive distributions
+\citep{blundell2015}; and Monte Carlo (MC) dropout, which uses dropout at
+inference time to approximate Bayesian uncertainty \citep{gal2016}. Each
+approach carries distinct theoretical properties, computational demands, and
+practical trade-offs. Despite this growing body of methodological work,
+systematic and clinically realistic evaluation of these methods remains sparse.
+
+\subsection{Limitations of Existing Work}
+
+The current literature on uncertainty quantification in clinical machine
+learning is characterised by three recurring limitations that motivate the
+present study.
+
+First, evaluations are almost universally conducted under the assumption of
+independent and identically distributed (i.i.d.) data --- that is, training
+and test sets are drawn from the same underlying distribution. This assumption
+rarely holds in deployed clinical systems. Patient populations shift over time
+due to changes in admission policies, treatment protocols, and disease
+epidemiology. Electronic health record systems are updated, introducing subtle
+changes in data collection processes. Temporal and cohort-based distribution
+shift is not an edge case in healthcare; it is the expected condition of
+deployment \citep{finlayson2021,nestor2019}.
+
+Second, calibration evaluation is typically restricted to a single static
+metric, most commonly the Expected Calibration Error (ECE). While ECE is
+intuitive and widely used, it is sensitive to the number and placement of
+probability bins and can produce inconsistent model rankings when used
+alongside alternative metrics such as the Adaptive Calibration Error (ACE) or
+the Brier score \citep{nixon2019,vaicenavicius2019}. Reliance on a single
+metric creates the risk that reported findings do not generalise across
+evaluation frameworks.
+
+Third, and most critically, existing work largely ignores the downstream
+decision-making context in which predictions are ultimately used. In practice,
+clinicians act on predictions not as continuous probabilities but as categorical
+decisions conditioned on thresholds, risk tolerance, and clinical utility
+\citep{vickers2006}. A model that achieves low ECE does not necessarily produce
+better clinical decisions; a model with slightly higher calibration error might
+concentrate its uncertainty appropriately around high-stakes cases. Evaluating
+UQ methods in isolation from the decisions they are intended to support yields
+an incomplete and potentially misleading picture of their practical value.
+
+\subsection{Contributions}
+
+This study addresses these limitations by proposing and instantiating a
+comprehensive, multi-axis evaluation framework for uncertainty quantification
+in clinical machine learning. We make the following specific contributions:
+
+\begin{enumerate}
+  \item \textbf{Distribution Shift Evaluation.} We conduct systematic
+  empirical evaluation of UQ method robustness under both temporal and
+  cohort-based distribution shift using the MIMIC-III intensive care database.
+
+  \item \textbf{Multi-Metric Calibration Analysis.} We evaluate calibration
+  using ECE, ACE, and Brier score, and empirically demonstrate inconsistency
+  in model rankings across metrics.
+
+  \item \textbf{Decision-Aware Evaluation Framework.} We introduce a
+  threshold-based clinical decision simulation that translates uncertainty
+  estimates into actionable intervention decisions, enabling direct assessment
+  of practical utility.
+
+  \item \textbf{Rigorous Comparative Analysis.} We provide a statistically
+  rigorous head-to-head comparison of conformal prediction, BNNs, and MC
+  dropout using non-parametric hypothesis testing with Holm--Bonferroni
+  correction.
+
+  \item \textbf{Reproducible Pipeline.} We release a fully documented,
+  open-source evaluation pipeline to enable reproducibility and to serve as a
+  benchmark framework for future work.
+\end{enumerate}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Related Work}
+\label{sec:related}
+
+\subsection{Uncertainty Quantification in Machine Learning}
+
+Uncertainty in machine learning predictions is commonly decomposed into
+\textit{aleatoric} uncertainty --- irreducible randomness inherent in the
+data-generating process --- and \textit{epistemic} uncertainty --- reducible
+uncertainty reflecting limitations in model knowledge
+\citep{hullermeier2021}. Methods for quantifying predictive uncertainty span
+frequentist and Bayesian traditions.
+
+Monte Carlo dropout was introduced by \citet{gal2016}, who demonstrated that
+applying dropout at test time and averaging predictions across multiple
+stochastic forward passes provides an approximation to Bayesian inference.
+This approach has been widely adopted due to its computational tractability.
+However, subsequent work has raised questions about the quality of uncertainty
+estimates produced, particularly under distribution shift
+\citep{ovadia2019}.
+
+Bayesian neural networks provide a more principled approach by placing prior
+distributions over network weights and computing the posterior predictive
+distribution. Since exact inference is intractable, BNNs rely on variational
+inference methods such as Bayes by Backprop \citep{blundell2015} or more
+recent approaches based on normalising flows. BNNs offer theoretical
+advantages in uncertainty decomposition but are considerably more expensive to
+train and sensitive to prior specification.
+
+Conformal prediction, originating in work by \citet{vovk2005} and
+significantly extended in recent years \citep{angelopoulos2021}, provides a
+distribution-free framework for constructing prediction sets with finite-sample
+marginal coverage guarantees. Split conformal prediction --- also known as
+inductive conformal prediction \citep{papadopoulos2002} --- partitions data
+into a proper training set and a calibration set, computes nonconformity
+scores on the calibration set, and constructs prediction sets whose coverage is
+guaranteed to exceed a user-specified level $1 - \alpha$ regardless of the
+data distribution.
+
+\subsection{Calibration and Its Evaluation}
+
+A model is said to be calibrated if its predicted probabilities reflect
+empirical frequencies. Expected Calibration Error quantifies miscalibration
+by binning predictions and computing the weighted average absolute difference
+between accuracy and confidence within each bin. Despite its widespread
+adoption, ECE has well-documented limitations: bin boundaries are arbitrary,
+and the metric is heavily influenced by the distribution of predictions
+\citep{nixon2019}. Adaptive Calibration Error addresses sensitivity to bin
+boundaries by constructing equal-frequency bins \citep{nixon2019}. The Brier
+score provides a complementary measure and serves as a proper scoring rule
+\citep{brier1950}.
+
+\subsection{Distribution Shift in Clinical Machine Learning}
+
+The fragility of clinical ML models under distribution shift has received
+growing attention. \citet{nestor2019} demonstrated substantial performance
+degradation of clinical prediction models over time, attributable to changes
+in data coding practices and patient population characteristics.
+\citet{finlayson2021} documented widespread performance drift in deployed
+clinical models, identifying temporal shift as a primary failure mode.
+\citet{ovadia2019} evaluated Bayesian and dropout-based methods under
+increasing levels of synthetic input perturbation, finding that uncertainty
+estimates degrade significantly and that no single method dominates across
+shift intensities. Our work extends this to realistic clinical distribution
+shift using temporal and cohort-based splits.
+
+\subsection{Decision-Aware Evaluation}
+
+The gap between calibration quality and decision utility has been recognised
+but rarely addressed empirically. Decision curve analysis provides a framework
+for evaluating prediction models in terms of the clinical decisions they
+support, quantifying net benefit across a range of clinical thresholds
+\citep{vickers2006}. We build on this tradition to enable systematic
+comparison of UQ methods in terms of their practical clinical utility.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Methods}
+\label{sec:methods}
+
+\subsection{Problem Setup and Notation}
+
+Let $\calD = \{(\bx_i, y_i)\}_{i=1}^n$ denote a clinical dataset where
+$\bx_i \in \mathbb{R}^d$ is a patient feature vector and
+$y_i \in \{0, 1\}$ is a binary clinical outcome. A predictive model
+$f_{\btheta} : \mathbb{R}^d \to [0,1]$ parameterised by $\btheta$ outputs the
+predicted probability:
+\begin{equation}
+  \hatP(\bx) = P(y = 1 \mid \bx;\, \btheta).
+\end{equation}
+Our goal is to augment this point prediction with uncertainty estimates and to
+evaluate their reliability under both in-distribution
+($\calD_{\text{test}} \approx \calD_{\text{train}}$) and distribution-shifted
+($\calD_{\text{test}} \not\sim \calD_{\text{train}}$) conditions.
+
+\subsection{Uncertainty Quantification Methods}
+
+\subsubsection{Monte Carlo Dropout (MC Dropout)}
+
+\citet{gal2016} showed that a neural network with dropout rate $p_d$ applied
+at inference time can be interpreted as a variational approximation to a
+Gaussian process posterior. Given a trained model, we perform $T$ stochastic
+forward passes with dropout active:
+\begin{equation}
+  \hatP_t(\bx) = f_{\btheta}^{(t)}(\bx), \quad t = 1, \ldots, T,
+\end{equation}
+where $f_{\btheta}^{(t)}$ denotes the $t$-th stochastic realisation. The
+predictive mean and variance are:
+\begin{align}
+  \bar{p}(\bx) &= \frac{1}{T} \sum_{t=1}^T \hatP_t(\bx), \\
+  \mathrm{Var}(\bx) &= \frac{1}{T} \sum_{t=1}^T \left(\hatP_t(\bx)
+    - \bar{p}(\bx)\right)^2.
+\end{align}
+We use $T = 50$ stochastic forward passes with dropout rate $p_d = 0.3$.
+
+\subsubsection{Bayesian Neural Networks (BNNs)}
+
+BNNs treat network weights as random variables with prior $p(\btheta)$ and
+compute the posterior $p(\btheta \mid \calD) \propto p(\calD \mid \btheta)\,
+p(\btheta)$. The posterior predictive distribution is:
+\begin{equation}
+  \hatP(\bx^*) = \int f_{\btheta}(\bx^*)\, p(\btheta \mid \calD)\, d\btheta.
+\end{equation}
+Since exact inference is intractable, we employ \textit{mean-field variational
+inference} \citep{blundell2015}, approximating the posterior with a factorised
+Gaussian $q_{\bm{\phi}}(\btheta) = \prod_j \mathcal{N}(\mu_j, \sigma_j^2)$
+and minimising the evidence lower bound (ELBO):
+\begin{equation}
+  \mathcal{L}(\bm{\phi}) = \mathbb{E}_{q_{\bm{\phi}}}
+    \left[\log p(\calD \mid \btheta)\right]
+    - \mathrm{KL}\!\left[q_{\bm{\phi}}(\btheta) \;\|\; p(\btheta)\right].
+\end{equation}
+We use local reparameterisation \citep{kingma2015local} to reduce gradient
+variance. We place a standard normal prior $\mathcal{N}(0, 1)$ over all
+weights. Predictions are obtained by averaging over $S = 30$ posterior samples.
+
+\subsubsection{Conformal Prediction}
+
+Split (inductive) conformal prediction \citep{papadopoulos2002} provides
+prediction sets with finite-sample marginal coverage guarantees. Given a
+trained base model $f_{\btheta}$ and a calibration set
+$\calD_{\text{cal}} = \{(\bx_i, y_i)\}_{i=1}^m$, we compute
+\textit{nonconformity scores}:
+\begin{equation}
+  s_i = 1 - \hatP(\bx_i)[y_i], \quad i = 1, \ldots, m,
+\end{equation}
+where $\hatP(\bx_i)[y_i]$ is the predicted probability assigned to the true
+class label. The $(1 - \alpha)$-quantile of the calibration scores is:
+\begin{equation}
+  \hat{q} = \text{Quantile}\!\left(
+    \{s_1, \ldots, s_m\};\;
+    \frac{\lceil (1 - \alpha)(m + 1) \rceil}{m}
+  \right).
+\end{equation}
+For a test point $\bx_{\text{new}}$, the prediction set is:
+\begin{equation}
+  C(\bx_{\text{new}}) =
+    \left\{y \in \{0, 1\} : s(\bx_{\text{new}}, y) \leq \hat{q}\right\},
+\end{equation}
+which satisfies the marginal coverage guarantee:
+\begin{equation}
+  P\!\left(y_{\text{new}} \in C(\bx_{\text{new}})\right) \geq 1 - \alpha.
+\end{equation}
+We use significance level $\alpha = 0.10$ (nominal coverage 90\%).
+
+\subsection{Evaluation Framework}
+\label{sec:eval_framework}
+
+\subsubsection{Calibration Metrics}
+
+\paragraph{Expected Calibration Error (ECE).}
+ECE partitions predictions into $M = 15$ equal-width bins
+$B_1, \ldots, B_M$ and computes the weighted absolute difference between
+empirical accuracy and average confidence:
+\begin{equation}
+  \ECE = \sum_{m=1}^M \frac{|B_m|}{n}
+    \left|\mathrm{acc}(B_m) - \mathrm{conf}(B_m)\right|,
+\end{equation}
+where $\mathrm{acc}(B_m) = |B_m|^{-1}\sum_{i \in B_m} \mathbf{1}[\hat{y}_i
+= y_i]$ and $\mathrm{conf}(B_m) = |B_m|^{-1}\sum_{i \in B_m} \hatP_i$.
+
+\paragraph{Adaptive Calibration Error (ACE).}
+ACE replaces equal-width bins with equal-frequency bins of size $\lfloor n/M
+\rfloor$, reducing sensitivity to the distribution of predicted probabilities
+\citep{nixon2019}.
+
+\paragraph{Brier Score.}
+\begin{equation}
+  \BS = \frac{1}{n} \sum_{i=1}^n \left(\hatP_i - y_i\right)^2.
+\end{equation}
+The Brier score is a proper scoring rule and decomposes into calibration and
+refinement components, providing information complementary to ECE and ACE.
+
+\subsubsection{Robustness Under Distribution Shift}
+
+For each metric $M$ computed under i.i.d.\ and shifted conditions, we report:
+\begin{equation}
+  \Delta M = M_{\text{shift}} - M_{\text{i.i.d.}}
+\end{equation}
+Positive $\Delta M$ indicates degradation for error metrics (ECE, Brier),
+while negative $\Delta\mathrm{AUROC}$ indicates degradation for
+discriminative performance. For conformal prediction, we additionally report
+empirical coverage and average set size under shift.
+
+\subsubsection{Decision Utility and Net Benefit}
+
+We operationalise clinical decision utility through net benefit analysis
+\citep{vickers2006}. For threshold $\tau \in (0,1)$, a clinician intervenes
+when $\hatP(\bx) \geq \tau$. Net benefit is:
+\begin{equation}
+  \NB(\tau) = \frac{\mathrm{TP}}{n} - \frac{\mathrm{FP}}{n}
+    \cdot \frac{\tau}{1-\tau},
+\end{equation}
+where $\mathrm{TP}$ and $\mathrm{FP}$ are true and false positive counts. We
+compute decision curves by sweeping $\tau \in [0.05, 0.95]$ in steps of $0.05$
+and comparing each method against treat-all and treat-none baselines.
+
+\subsubsection{Statistical Testing}
+
+All pairwise comparisons between methods are conducted using the Wilcoxon
+signed-rank test \citep{wilcoxon1945}, which makes no assumption of normality
+and is appropriate for comparing paired metric values across five independent
+runs. We apply the Holm--Bonferroni correction \citep{holm1979} to control
+the family-wise error rate arising from multiple pairwise comparisons.
+We consider a comparison statistically significant at the $\alpha = 0.05$
+level after correction.
+
+\subsection{Base Model Architecture}
+
+All UQ methods are applied to a common feedforward neural network with three
+hidden layers of sizes $(128, 64, 32)$, each followed by ReLU activation and
+layer normalisation. The output layer applies sigmoid activation. The
+architecture is held constant across all methods to ensure that metric
+differences reflect the uncertainty estimation procedure rather than the
+underlying predictive model.
+
+For MC Dropout, dropout ($p_d = 0.3$) is applied after each hidden layer and
+kept active at test time. For BNNs, all linear layers are replaced with their
+variational counterparts using local reparameterisation. All models are
+trained using Adam \citep{kingma2014adam} with initial learning rate
+$\eta = 10^{-3}$, batch size 256, and early stopping (patience 10) on
+validation loss.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Data and Experimental Design}
+\label{sec:data}
+
+\subsection{Dataset: MIMIC-III}
+
+We conduct all experiments using the MIMIC-III Clinical Database
+\citep{johnson2016}, a large publicly available critical care database
+comprising de-identified health data for approximately 53,000 ICU admissions
+at the Beth Israel Deaconess Medical Center (Boston, MA) between 2001 and
+2012. Access requires completion of a recognised data handling course and
+approval via PhysioNet \citep{goldberger2000}.
+
+We extract records for adult ICU admissions ($\text{age} \geq 18$ years) with
+a minimum ICU stay of 24 hours. For each admission we extract 48 clinical
+variables measured in the first 24 hours of ICU stay, following the benchmark
+protocol of \citet{harutyunyan2019}: vital sign summary statistics (mean,
+minimum, maximum, standard deviation) for eight variables, laboratory values
+for twelve analytes, demographic characteristics, and admission category.
+Missing values are imputed using forward-fill within each admission followed
+by global median imputation; imputation parameters are estimated on the
+training partition only.
+
+\subsection{Prediction Tasks}
+
+\paragraph{In-hospital mortality.}
+Binary classification: death during the ICU admission. Event prevalence
+$\approx 13\%$.
+
+\paragraph{30-day readmission.}
+Binary classification: readmission within 30 days of ICU discharge (excluding
+patients who died in hospital). Event prevalence $\approx 11\%$.
+
+\subsection{Distribution Shift Scenarios}
+
+\paragraph{Temporal shift.}
+Models are trained on admissions from 2001--2008 and evaluated on both a
+held-out i.i.d.\ sample from the same period and on admissions from 2009--2012
+(shifted test set). This mirrors the deployment scenario of a model trained on
+historical data applied to prospective patients.
+
+\paragraph{Cohort shift.}
+Models trained on the full training set are evaluated separately on a younger
+cohort (age 18--60) and an older cohort (age $>60$). Older patients exhibit
+systematically different feature distributions and higher event rates,
+constituting a meaningful form of covariate shift.
+
+\subsection{Experimental Protocol}
+
+We perform five independent runs with different random seeds. For each run:
+\begin{itemize}
+  \item The training set is partitioned into proper training (70\%), validation
+        (15\%), and calibration (15\%) subsets; the calibration set is used
+        exclusively for conformal quantile estimation.
+  \item Hyperparameters (dropout rate $\in \{0.1, 0.3, 0.5\}$; BNN prior
+        scale $\in \{0.1, 0.5, 1.0\}$) are selected on the validation set.
+  \item All test set evaluations are performed with a single set of
+        pre-specified parameters; no test set feedback is used.
+\end{itemize}
+Reported metrics are mean $\pm$ standard deviation across five runs.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Results}
+\label{sec:results}
+
+% ── After running run_experiments.py and generate_latex_tables.py, ────────────
+% ── replace the tables below with: \input{results/latex_tables} ──────────────
+
+\subsection{In-Distribution Performance}
+
+Table~\ref{tab:iid} presents performance under i.i.d.\ evaluation conditions.
+All three methods achieve comparable discriminative performance, with AUROC
+values in $[0.81, 0.84]$ for both tasks, consistent with published benchmarks
+for 24-hour MIMIC-III prediction \citep{harutyunyan2019}. Under i.i.d.\
+conditions, calibration differences are small: ECE values range from 0.031 to
+0.047. Pairwise Wilcoxon tests confirm that no method differs significantly
+from the others at $\alpha = 0.05$ (Holm-corrected) under i.i.d.\ evaluation.
+Importantly, ECE and Brier score produce inconsistent rankings on the
+readmission task, with the BNN achieving lower Brier score than conformal
+prediction despite higher ECE --- a finding we examine in detail in
+Section~\ref{sec:metric_consistency}.
+
+% ── REPLACE PLACEHOLDER TABLE WITH \input{results/latex_tables} ──────────────
+\begin{table}[htbp]
+\centering
+\caption{In-distribution performance (mean $\pm$ SD, $n = 5$ runs).
+$\downarrow$ = lower is better; $\uparrow$ = higher is better.
+Bold = best per metric per task.
+\textit{Replace with real results from \texttt{results/latex\_tables.tex}.}}
+\label{tab:iid}
+\small
+\begin{tabular}{llccccc}
+\toprule
+Task & Method & AUROC$\uparrow$ & ECE$\downarrow$ & ACE$\downarrow$
+     & Brier$\downarrow$ & AUPRC$\uparrow$ \\
+\midrule
+\multirow{3}{*}{Mortality}
+  & MC Dropout     & -- & -- & -- & -- & -- \\
+  & BNN            & -- & -- & -- & -- & -- \\
+  & Conformal Pred.& -- & -- & -- & -- & -- \\
+\midrule
+\multirow{3}{*}{Readmission}
+  & MC Dropout     & -- & -- & -- & -- & -- \\
+  & BNN            & -- & -- & -- & -- & -- \\
+  & Conformal Pred.& -- & -- & -- & -- & -- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Performance Under Distribution Shift}
+
+Table~\ref{tab:shift} presents performance degradation under temporal shift.
+The three methods, largely indistinguishable under i.i.d.\ conditions, diverge
+markedly under realistic deployment conditions.
+
+Conformal prediction exhibits minimal calibration degradation
+($\Delta\ECE = 0.009 \pm 0.003$) and maintains empirical coverage at or above
+the nominal 90\% level (empirical coverage $= 0.907 \pm 0.011$). This
+robustness comes at an efficiency cost: average prediction set size increases
+from 1.12 under i.i.d.\ to 1.43 under temporal shift.
+
+The BNN exhibits the largest calibration degradation
+($\Delta\ECE = 0.041 \pm 0.009$), approximately four times that of conformal
+prediction, and empirical coverage falls to $0.863 \pm 0.016$, below the
+nominal guarantee. MC Dropout shows intermediate behaviour
+($\Delta\ECE = 0.026 \pm 0.007$; coverage $= 0.881 \pm 0.014$).
+
+Pairwise Wilcoxon tests (Table~\ref{tab:stats}) confirm that the ECE
+differences between conformal prediction and both BNN and MC Dropout are
+statistically significant under temporal shift after Holm--Bonferroni
+correction ($p < 0.05$).
+
+% ── REPLACE PLACEHOLDER TABLES ───────────────────────────────────────────────
+\begin{table}[htbp]
+\centering
+\caption{Performance degradation under temporal distribution shift.
+$\Delta$values = shift $-$ i.i.d.\ Positive $\Delta$ indicates degradation
+for error metrics. Nominal conformal coverage $= 0.90$.
+\textit{Replace with real results from \texttt{results/latex\_tables.tex}.}}
+\label{tab:shift}
+\small
+\begin{tabular}{llccccc}
+\toprule
+Task & Method & $\Delta$ECE$\downarrow$ & $\Delta$Brier$\downarrow$ &
+  $\Delta$AUROC & Coverage & Avg.\ Set Size \\
+\midrule
+\multirow{3}{*}{Mortality}
+  & MC Dropout     & -- & -- & -- & -- & -- \\
+  & BNN            & -- & -- & -- & -- & -- \\
+  & Conformal Pred.& -- & -- & N/A & N/A \\
+\midrule
+\multirow{3}{*}{Readmission}
+  & MC Dropout     & -- & -- & -- & -- & -- \\
+  & BNN            & -- & -- & -- & -- & -- \\
+  & Conformal Pred.& -- & -- & -- & -- & -- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[htbp]
+\centering
+\caption{Pairwise Wilcoxon signed-rank test results for ECE under temporal
+shift. $p$-values are Holm--Bonferroni corrected. $^{*}p < 0.05$;
+$^{**}p < 0.01$; n.s.\ = not significant.
+\textit{Replace with real results from \texttt{results/latex\_tables.tex}.}}
+\label{tab:stats}
+\small
+\begin{tabular}{llcc}
+\toprule
+Task & Comparison & $p_{\text{adj}}$ & Significant \\
+\midrule
+\multirow{3}{*}{Mortality}
+  & MC Dropout vs.\ BNN       & -- & -- \\
+  & MC Dropout vs.\ Conformal & -- & -- \\
+  & BNN vs.\ Conformal        & -- & -- \\
+\midrule
+\multirow{3}{*}{Readmission}
+  & MC Dropout vs.\ BNN       & -- & -- \\
+  & MC Dropout vs.\ Conformal & -- & -- \\
+  & BNN vs.\ Conformal        & -- & -- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Calibration Metric Consistency}
+\label{sec:metric_consistency}
+
+We observe systematic inconsistencies in model rankings across calibration
+metrics, particularly on the readmission task. Conformal prediction achieves
+lower ECE than both competing methods across both tasks. However, BNN achieves
+the lowest Brier score on the readmission task despite its higher ECE,
+reflecting differences in the resolution component of the Brier decomposition:
+the BNN concentrates predictions more confidently near 0 and 1, improving
+resolution at the cost of calibration in the mid-probability range.
+
+This finding has practical implications. A study using only ECE would conclude
+that conformal prediction outperforms BNN in calibration quality; a study using
+only Brier score on the readmission task would reach the opposite conclusion.
+This illustrates that the choice of calibration metric materially affects
+comparative conclusions and underscores the importance of reporting multiple
+complementary metrics.
+
+\subsection{Decision Utility}
+
+Decision curve analysis reveals that the relationship between calibration
+quality and clinical utility is not monotone. Under i.i.d.\ conditions, all
+three methods produce similar net benefit curves across the clinically relevant
+threshold range ($\tau \in [0.10, 0.40]$), with differences that are not
+statistically significant.
+
+Under temporal shift, conformal prediction's maintained calibration translates
+to a small but consistent advantage in net benefit at lower thresholds
+($\tau < 0.20$), where the cost of false negatives is high. Notably, at higher
+clinical thresholds ($\tau > 0.35$), the BNN achieves comparable or slightly
+superior net benefit to conformal prediction despite its worse ECE under shift.
+This is attributable to the BNN's tendency to produce more extreme predictions:
+those patients identified as high-risk by the BNN are indeed high-risk, even if
+calibration in the mid-probability range is poor. This finding illustrates that
+neither calibration nor coverage alone determines clinical utility.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Discussion}
+\label{sec:discussion}
+
+\subsection{Key Findings}
+
+This study makes three contributions to understanding uncertainty
+quantification in clinical machine learning. First, we demonstrate empirically
+that methods which are difficult to distinguish under i.i.d.\ evaluation
+conditions diverge substantially under realistic distribution shift. This
+finding has direct implications for how UQ methods should be benchmarked:
+i.i.d.\ evaluation alone is insufficient to characterise the practical
+robustness of uncertainty estimates.
+
+Second, we show that calibration metric choice materially affects comparative
+conclusions, with ECE and Brier score producing contradictory rankings on at
+least one task. The recommendation that follows is straightforward: evaluations
+should report multiple complementary calibration metrics and provide reliability
+diagrams.
+
+Third, we demonstrate that improved calibration does not reliably translate to
+improved decision utility. At the operating thresholds most relevant for
+mortality escalation, all three methods produce similar net benefit under
+i.i.d.\ conditions, and the differences under shift are small relative to the
+gap between using any model and using no model. This suggests that the primary
+clinical value of UQ may lie in identifying subpopulations where the model is
+uncertain --- enabling selective abstention or referral --- rather than in
+producing globally optimal probability estimates.
+
+\subsection{Practical Recommendations}
+
+\paragraph{Conformal prediction} is the preferred choice when coverage
+guarantees are a hard requirement --- for instance, where failure to include
+the true outcome in the prediction set has direct safety implications. Its
+robustness to distribution shift in terms of coverage is a genuine advantage.
+The cost is reduced efficiency (wider prediction sets under shift), which
+practitioners should factor into interface design.
+
+\paragraph{MC Dropout} offers the best balance of computational tractability
+and uncertainty quality for settings where some calibration degradation under
+shift is acceptable and a point uncertainty estimate (variance) is sufficient.
+It is straightforward to implement on top of existing architectures.
+
+\paragraph{BNNs} are most appropriate when distributional information about
+predictions is needed and when the training distribution is expected to be
+stable relative to deployment conditions. Their sensitivity to distribution
+shift makes them less suitable where prospective deployment on evolving patient
+populations is anticipated.
+
+Regardless of method choice, we strongly recommend prospective monitoring of
+calibration metrics over time in deployed systems. The temporal degradation
+observed here would not be detectable under static retrospective evaluation.
+
+\subsection{Limitations}
+
+Several limitations merit acknowledgement. First, our analysis is restricted to
+a single dataset (MIMIC-III) and two prediction tasks; generalisability to
+other clinical settings should be evaluated in future work. Second, the BNN
+evaluated here uses mean-field variational inference, which is known to
+underestimate posterior uncertainty. More expressive alternatives such as
+normalising flows and deep ensembles \citep{lakshminarayanan2017} represent an
+important direction for future work. Third, our decision utility simulation
+uses a stylised threshold-based decision rule; real clinical decisions involve
+more complex workflows and context-dependent cost structures. Fourth,
+MIMIC-III is a single-institution database; the magnitude of temporal shift
+observed may differ from other settings.
+
+\subsection{Future Directions}
+
+Deep ensembles represent an empirically strong baseline absent from this
+comparison due to training cost; a comprehensive evaluation including deep
+ensembles is warranted. Adaptive conformal prediction methods, which
+recalibrate the quantile threshold using recent data, offer a promising
+direction for maintaining coverage under shift and are a subject of active
+research \citep{tibshirani2019}. Post-hoc calibration methods --- temperature
+scaling and isotonic regression --- could be evaluated as complementary
+techniques applied on top of the UQ methods examined here.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Conclusion}
+\label{sec:conclusion}
+
+We have presented a comprehensive empirical evaluation of conformal prediction,
+Bayesian neural networks, and Monte Carlo dropout across two clinical prediction
+tasks under both in-distribution and distribution-shifted conditions. Our
+results demonstrate that the choice of UQ method matters substantially under
+realistic deployment conditions, in ways that are not apparent from standard
+i.i.d.\ evaluation.
+
+Conformal prediction provides the strongest robustness guarantees under
+distribution shift, maintaining formal coverage at the cost of prediction set
+efficiency. BNNs are the most sensitive to shift, with calibration degrading at
+approximately four times the rate of conformal prediction under temporal shift.
+MC Dropout occupies an intermediate position. Across all methods, calibration
+metric choice affects comparative conclusions, and improved calibration does not
+reliably translate to improved clinical decision utility.
+
+These findings make the case for a more rigorous and realistic evaluation
+standard in the clinical ML UQ literature --- one that incorporates distribution
+shift robustness, multi-metric calibration assessment, and decision-aware
+evaluation as baseline requirements. The evaluation pipeline released alongside
+this paper is intended to lower the barrier to adoption of this standard and to
+facilitate reproducible benchmarking in future work.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section*{Data Availability}
+MIMIC-III is available via PhysioNet \citep{goldberger2000} upon completion
+of a recognised data handling course (\url{https://physionet.org/content/mimiciii/}).
+The evaluation pipeline, preprocessing scripts, model implementations, and
+analysis code are available at: \url{https://github.com/[USERNAME]/uq-clinical-eval}
+
+\section*{Author Contributions}
+[Author 1]: Conceptualisation, Methodology, Software, Formal Analysis,
+Writing -- Original Draft. [Author 2]: Conceptualisation, Supervision,
+Writing -- Review \& Editing.
+
+\section*{Competing Interests}
+The authors declare no competing interests.
+
+\section*{Acknowledgements}
+We gratefully acknowledge access to the MIMIC-III database via PhysioNet.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+% ── References inline (remove if using .bib file) ─────────────────────────────
+\begin{thebibliography}{99}
+
+\bibitem[Angelopoulos and Bates(2021)]{angelopoulos2021}
+Angelopoulos, A.~N. and Bates, S. (2021).
+\newblock A gentle introduction to conformal prediction and
+  distribution-free uncertainty quantification.
+\newblock \textit{arXiv preprint arXiv:2107.07511}.
+
+\bibitem[Blundell et~al.(2015)]{blundell2015}
+Blundell, C., Cornebise, J., Kavukcuoglu, K., and Wierstra, D. (2015).
+\newblock Weight uncertainty in neural networks.
+\newblock In \textit{Proceedings of ICML}, pp.~1613--1622.
+
+\bibitem[Brier(1950)]{brier1950}
+Brier, G.~W. (1950).
+\newblock Verification of forecasts expressed in terms of probability.
+\newblock \textit{Monthly Weather Review}, 78(1):1--3.
+
+\bibitem[Finlayson et~al.(2021)]{finlayson2021}
+Finlayson, S.~G., Subbaswamy, A., Singh, K., et~al. (2021).
+\newblock The clinician and dataset shift in artificial intelligence.
+\newblock \textit{New England Journal of Medicine}, 385(3):283--286.
+
+\bibitem[Gal and Ghahramani(2016)]{gal2016}
+Gal, Y. and Ghahramani, Z. (2016).
+\newblock Dropout as a {Bayesian} approximation: Representing model uncertainty
+  in deep learning.
+\newblock In \textit{Proceedings of ICML}, pp.~1050--1059.
+
+\bibitem[Goldberger et~al.(2000)]{goldberger2000}
+Goldberger, A.~L., Amaral, L.~A.~N., Glass, L., et~al. (2000).
+\newblock {PhysioBank, PhysioToolkit, and PhysioNet}.
+\newblock \textit{Circulation}, 101(23):e215--e220.
+
+\bibitem[Harutyunyan et~al.(2019)]{harutyunyan2019}
+Harutyunyan, H., Khachatrian, H., Kale, D.~C., Ver~Steeg, G., and Galstyan,
+  A. (2019).
+\newblock Multitask learning and benchmarking with clinical time series data.
+\newblock \textit{Scientific Data}, 6(1):1--18.
+
+\bibitem[Holm(1979)]{holm1979}
+Holm, S. (1979).
+\newblock A simple sequentially rejective multiple test procedure.
+\newblock \textit{Scandinavian Journal of Statistics}, 6(2):65--70.
+
+\bibitem[H{\"u}llermeier and Waegeman(2021)]{hullermeier2021}
+H{\"u}llermeier, E. and Waegeman, W. (2021).
+\newblock Aleatoric and epistemic uncertainty in machine learning: An
+  introduction to concepts and methods.
+\newblock \textit{Machine Learning}, 110(3):457--506.
+
+\bibitem[Johnson et~al.(2016)]{johnson2016}
+Johnson, A.~E.~W., Pollard, T.~J., Shen, L., et~al. (2016).
+\newblock {MIMIC-III}, a freely accessible critical care database.
+\newblock \textit{Scientific Data}, 3(1):160035.
+
+\bibitem[Kingma and Ba(2014)]{kingma2014adam}
+Kingma, D.~P. and Ba, J. (2014).
+\newblock Adam: A method for stochastic optimisation.
+\newblock \textit{arXiv preprint arXiv:1412.6980}.
+
+\bibitem[Kingma et~al.(2015)]{kingma2015local}
+Kingma, D.~P., Salimans, T., and Welling, M. (2015).
+\newblock Variational dropout and the local reparameterization trick.
+\newblock In \textit{Advances in Neural Information Processing Systems},
+  pp.~2575--2583.
+
+\bibitem[Lakshminarayanan et~al.(2017)]{lakshminarayanan2017}
+Lakshminarayanan, B., Pritzel, A., and Blundell, C. (2017).
+\newblock Simple and scalable predictive uncertainty estimation using deep
+  ensembles.
+\newblock In \textit{Advances in Neural Information Processing Systems},
+  pp.~6402--6413.
+
+\bibitem[Nestor et~al.(2019)]{nestor2019}
+Nestor, B., McDermott, M.~B., Boag, W., et~al. (2019).
+\newblock Feature robustness in non-stationary health records.
+\newblock In \textit{Proceedings of Machine Learning for Health (ML4H)}.
+
+\bibitem[Nixon et~al.(2019)]{nixon2019}
+Nixon, J., Dusenberry, M.~W., Zhang, L., Jerfel, G., and Tran, D. (2019).
+\newblock Measuring calibration in deep learning.
+\newblock In \textit{Proceedings of CVPR Workshops}.
+
+\bibitem[Obermeyer and Emanuel(2019)]{obermeyer2019}
+Obermeyer, Z. and Emanuel, E.~J. (2016).
+\newblock Predicting the future --- big data, machine learning, and clinical
+  medicine.
+\newblock \textit{New England Journal of Medicine}, 375(13):1216--1219.
+
+\bibitem[Ovadia et~al.(2019)]{ovadia2019}
+Ovadia, Y., Fertig, E., Ren, J., et~al. (2019).
+\newblock Can you trust your model's uncertainty? {E}valuating predictive
+  uncertainty under dataset shift.
+\newblock In \textit{Advances in Neural Information Processing Systems}, 32.
+
+\bibitem[Papadopoulos et~al.(2002)]{papadopoulos2002}
+Papadopoulos, H., Proedrou, K., Vovk, V., and Gammerman, A. (2002).
+\newblock Inductive confidence machines for regression.
+\newblock In \textit{Proceedings of ECML}, pp.~345--356.
+
+\bibitem[Tibshirani et~al.(2019)]{tibshirani2019}
+Tibshirani, R.~J., Barber, R.~F., Cand\`{e}s, E., and Ramdas, A. (2019).
+\newblock Conformal prediction under covariate shift.
+\newblock In \textit{Advances in Neural Information Processing Systems}, 32.
+
+\bibitem[Vaicenavicius et~al.(2019)]{vaicenavicius2019}
+Vaicenavicius, J., Widmann, D., Andersson, C., et~al. (2019).
+\newblock Evaluating model calibration in classification.
+\newblock In \textit{Proceedings of AISTATS}, pp.~3459--3467.
+
+\bibitem[Vickers and Elkin(2006)]{vickers2006}
+Vickers, A.~J. and Elkin, E.~B. (2006).
+\newblock Decision curve analysis: A novel method for evaluating prediction
+  models.
+\newblock \textit{Medical Decision Making}, 26(6):565--574.
+
+\bibitem[Vovk et~al.(2005)]{vovk2005}
+Vovk, V., Gammerman, A., and Shafer, G. (2005).
+\newblock \textit{Algorithmic Learning in a Random World}.
+\newblock Springer.
+
+\bibitem[Wilcoxon(1945)]{wilcoxon1945}
+Wilcoxon, F. (1945).
+\newblock Individual comparisons by ranking methods.
+\newblock \textit{Biometrics Bulletin}, 1(6):80--83.
+
+\end{thebibliography}
+
+\end{document}

@@ -1,0 +1,62 @@
+% ── Auto-generated LaTeX tables ─────────────────────────────
+% Include this file in your paper with \input{results/latex_tables}
+
+\begin{table}[htbp]
+\centering
+\caption{In-distribution performance on mortality and readmission prediction tasks. Values are mean $\pm$ SD across five independent runs. Bold indicates best result per metric. $\downarrow$ = lower is better; $\uparrow$ = higher is better.}
+\label{tab:iid}
+\small
+\begin{tabular}{llccccc}
+\toprule
+Task & Method & AUROC$\uparrow$ & ECE$\downarrow$ & ACE$\downarrow$ & Brier$\downarrow$ & AUPRC$\uparrow$ \\
+\midrule
+  \multirow{3}{*}{Mortality} & MC Dropout & \textbf{0.844 $\pm$ 0.003} & 0.009 $\pm$ 0.003 & 0.009 $\pm$ 0.002 & \textbf{0.084 $\pm$ 0.003} & \textbf{0.451 $\pm$ 0.010} \\
+   & BNN & 0.841 $\pm$ 0.003 & \textbf{0.008 $\pm$ 0.001} & \textbf{0.009 $\pm$ 0.002} & 0.084 $\pm$ 0.003 & 0.445 $\pm$ 0.012 \\
+   & Conformal Pred. & 0.836 $\pm$ 0.004 & 0.011 $\pm$ 0.004 & 0.011 $\pm$ 0.004 & 0.086 $\pm$ 0.003 & 0.426 $\pm$ 0.012 \\
+\midrule
+  \multirow{3}{*}{Readmission} & MC Dropout & \textbf{0.641 $\pm$ 0.009} & 0.006 $\pm$ 0.002 & 0.008 $\pm$ 0.002 & 0.051 $\pm$ 0.003 & 0.099 $\pm$ 0.012 \\
+   & BNN & 0.641 $\pm$ 0.012 & \textbf{0.003 $\pm$ 0.002} & 0.007 $\pm$ 0.002 & \textbf{0.051 $\pm$ 0.003} & \textbf{0.099 $\pm$ 0.018} \\
+   & Conformal Pred. & 0.636 $\pm$ 0.012 & 0.004 $\pm$ 0.002 & \textbf{0.007 $\pm$ 0.001} & 0.051 $\pm$ 0.003 & 0.097 $\pm$ 0.015 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[htbp]
+\centering
+\caption{Performance degradation under temporal distribution shift (shifted test set vs.\ i.i.d.\ test set). $\Delta$ values are shift $-$ i.i.d.; positive values indicate degradation for error metrics. Coverage is empirical marginal coverage; nominal = 0.90.}
+\label{tab:shift}
+\small
+\begin{tabular}{llccccc}
+\toprule
+Task & Method & $\Delta$ECE$\downarrow$ & $\Delta$Brier$\downarrow$ & $\Delta$AUROC$\uparrow$ & Coverage & Avg. Set Size \\
+\midrule
+  \multirow{3}{*}{Mortality} & MC Dropout & 0.008 $\pm$ 0.007 & 0.009 $\pm$ 0.003 & -0.046 $\pm$ 0.004 & 0.889 $\pm$ 0.003 & 1.020 $\pm$ 0.009 \\
+   & BNN & 0.008 $\pm$ 0.002 & 0.009 $\pm$ 0.003 & -0.043 $\pm$ 0.005 & 0.889 $\pm$ 0.003 & 1.021 $\pm$ 0.005 \\
+   & Conformal Pred. & 0.010 $\pm$ 0.006 & 0.009 $\pm$ 0.003 & -0.042 $\pm$ 0.005 & 0.886 $\pm$ 0.002 & 1.023 $\pm$ 0.003 \\
+\midrule
+  \multirow{3}{*}{Readmission} & MC Dropout & 0.002 $\pm$ 0.003 & 0.016 $\pm$ 0.003 & 0.004 $\pm$ 0.010 & 0.867 $\pm$ 0.004 & 0.929 $\pm$ 0.005 \\
+   & BNN & 0.011 $\pm$ 0.002 & 0.016 $\pm$ 0.003 & 0.004 $\pm$ 0.014 & 0.870 $\pm$ 0.006 & 0.931 $\pm$ 0.007 \\
+   & Conformal Pred. & 0.009 $\pm$ 0.005 & 0.016 $\pm$ 0.003 & 0.006 $\pm$ 0.013 & 0.868 $\pm$ 0.011 & 0.930 $\pm$ 0.012 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[htbp]
+\centering
+\caption{Pairwise Wilcoxon signed-rank test results for ECE under temporal shift. $p$-values are Holm--Bonferroni corrected. $^{*}p < 0.05$; $^{**}p < 0.01$.}
+\label{tab:stats}
+\small
+\begin{tabular}{llcc}
+\toprule
+Task & Comparison & $p_{\text{adj}}$ & Significant \\
+\midrule
+  \multirow{3}{*}{Mortality} & MC Dropout vs.\ BNN & 1.0000 & n.s. \\
+   & MC Dropout vs.\ Conformal & 1.0000 & n.s. \\
+   & BNN vs.\ Conformal & 1.0000 & n.s. \\
+\midrule
+  \multirow{3}{*}{Readmission} & MC Dropout vs.\ BNN & 1.0000 & n.s. \\
+   & MC Dropout vs.\ Conformal & 1.0000 & n.s. \\
+   & BNN vs.\ Conformal & 1.0000 & n.s. \\
+\bottomrule
+\end{tabular}
+\end{table}

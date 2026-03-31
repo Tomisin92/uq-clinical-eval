@@ -1,0 +1,86 @@
+{
+  "mortality": {
+    "iid": {
+      "('mc_dropout', 'bnn')": {
+        "statistic": true,
+        "p_raw": true,
+        "p_adj": true,
+        "significant": false
+      },
+      "('mc_dropout', 'conformal')": {
+        "statistic": true,
+        "p_raw": true,
+        "p_adj": true,
+        "significant": false
+      },
+      "('bnn', 'conformal')": {
+        "statistic": true,
+        "p_raw": true,
+        "p_adj": true,
+        "significant": false
+      }
+    },
+    "shift": {
+      "('mc_dropout', 'bnn')": {
+        "statistic": true,
+        "p_raw": true,
+        "p_adj": true,
+        "significant": false
+      },
+      "('mc_dropout', 'conformal')": {
+        "statistic": true,
+        "p_raw": true,
+        "p_adj": true,
+        "significant": false
+      },
+      "('bnn', 'conformal')": {
+        "statistic": true,
+        "p_raw": true,
+        "p_adj": true,
+        "significant": false
+      }
+    }
+  },
+  "readmission_30d": {
+    "iid": {
+      "('mc_dropout', 'bnn')": {
+        "statistic": false,
+        "p_raw": true,
+        "p_adj": true,
+        "significant": false
+      },
+      "('mc_dropout', 'conformal')": {
+        "statistic": true,
+        "p_raw": true,
+        "p_adj": true,
+        "significant": false
+      },
+      "('bnn', 'conformal')": {
+        "statistic": true,
+        "p_raw": true,
+        "p_adj": true,
+        "significant": false
+      }
+    },
+    "shift": {
+      "('mc_dropout', 'bnn')": {
+        "statistic": false,
+        "p_raw": true,
+        "p_adj": true,
+        "significant": false
+      },
+      "('mc_dropout', 'conformal')": {
+        "statistic": false,
+        "p_raw": true,
+        "p_adj": true,
+        "significant": false
+      },
+      "('bnn', 'conformal')": {
+        "statistic": true,
+        "p_raw": true,
+        "p_adj": true,
+        "significant": false
+      }
+    }
+  }
+}
